@@ -78,7 +78,7 @@ st.title("✨ Pro Multi-Agent Event Planner")
 with st.sidebar:
     st.header("📋 Event Specifications")
     with st.form("event_details"):
-        event_name = st.text_input("Event Name", " Enter Event Name”)
+        event_name = st.text_input("Event Name", "Enter Event Name")
         
         event_type_selection = st.selectbox(
             "Event Category", 
