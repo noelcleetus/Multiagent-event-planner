@@ -6,8 +6,15 @@ from groq import Groq
 # CONFIG & API SETUP
 # =============================
 st.set_page_config(page_title="Pro Event Planner AI", layout="wide")
-client = Groq(api_key="xxx")
 
+# Check if we are on Streamlit Cloud (Secrets) or local
+if "GROQ_API_KEY" in st.secrets:
+    api_key = st.secrets["GROQ_API_KEY"]
+else:
+    # This falls back to 'xxx' so the code doesn't crash if the key is missing
+    api_key = "xxx" 
+
+client = Groq(api_key=api_key)
 # =============================
 # AGENT CLASS
 # =============================
