@@ -1,20 +1,20 @@
 import streamlit as st
 import pandas as pd
 from groq import Groq
+import re
 
 # =============================
 # CONFIG & API SETUP
 # =============================
 st.set_page_config(page_title="Pro Event Planner AI", layout="wide")
 
-# Check if we are on Streamlit Cloud (Secrets) or local
 if "GROQ_API_KEY" in st.secrets:
     api_key = st.secrets["GROQ_API_KEY"]
 else:
-    # This falls back to 'xxx' so the code doesn't crash if the key is missing
     api_key = "xxx" 
 
 client = Groq(api_key=api_key)
+
 # =============================
 # AGENT CLASS
 # =============================
@@ -36,8 +36,6 @@ class Agent:
         except Exception as e:
             return f"Error contacting AI: {str(e)}"
 
-import re
-
 # =============================
 # HELPERS
 # =============================
@@ -51,10 +49,13 @@ def markdown_to_df(md_table):
         lines = [line.strip() for line in md_table.split("\n") if line.strip() and "---" not in line]
         if not lines: return pd.DataFrame()
         rows = [[cell.strip() for cell in line.strip("|").split("|")] for line in lines]
+        
+        # Build DataFrame
         df = pd.DataFrame(rows[1:], columns=rows[0])
-        # Safety Fix: Remove rows that are actually just headers
+        
+        # FINAL KILLER FIX: Remove rows that repeat the header labels
         if not df.empty:
-            df = df[df.iloc[:, 0].str.contains("Resource") == False]
+            df = df[~df.iloc[:, 0].str.contains("Resource|Original Cost|Optimized", case=False, na=False)]
         return df
     except:
         return pd.DataFrame()
@@ -62,10 +63,8 @@ def markdown_to_df(md_table):
 def clean_currency(val):
     if isinstance(val, (int, float)): return float(val)
     if not val: return 0.0
-    # Removes AED, commas, and whitespace to turn "AED 1,500" into 1500.0
     cleaned = str(val).upper().replace('AED', '').replace(',', '').strip()
     try:
-        # Handle ranges by taking the lower bound (e.g., "5000 - 7000" -> 5000)
         if '-' in cleaned:
             cleaned = cleaned.split('-')[0].strip()
         return float(cleaned)
@@ -73,28 +72,22 @@ def clean_currency(val):
         return 0.0
 
 def display_color_swatches(text):
-    """Finds hex codes in text and displays them as colored boxes."""
-    # Matches #FFFFFF or #FFF
     hex_codes = re.findall(r'#(?:[0-9a-fA-F]{3}){1,2}', text)
-    
     if hex_codes:
-        # Deduplicate while preserving order
         unique_hex = list(dict.fromkeys(hex_codes))
         st.write("### 🎨 Extracted Color Palette")
         cols = st.columns(len(unique_hex))
         for i, code in enumerate(unique_hex):
             with cols[i]:
                 st.color_picker(label=code, value=code, key=f"swatch_{code}_{i}", disabled=True)
-    else:
-        st.warning("No hex codes found in the designer's output.")
 
 # =============================
 # AGENT INSTANCES
 # =============================
 event_planner = Agent("You are a professional world-class event planner. You specialize in high-end aesthetics and detailed logistics.")
 vendor_agent = Agent("You estimate realistic market prices for event resources in AED.")
-budget_agent = Agent("You optimize budgets to stay under a specific limit while maintaining high quality.")
-designer_agent = Agent("You are a creative director. You suggest elegant color palettes (with Hex codes) and visual themes for events.")
+budget_agent = Agent("You are a strategic financial optimizer. Your goal is to keep costs near the limit without sacrificing the essential vibe.")
+designer_agent = Agent("You are a creative director. You suggest elegant color palettes (with Hex codes) and visual themes.")
 
 # =============================
 # UI & INPUT FORM
@@ -104,158 +97,71 @@ st.title("✨ Pro Multi-Agent Event Planner")
 with st.sidebar:
     st.header("📋 Event Specifications")
     with st.form("event_details"):
-        event_name = st.text_input("Event Name", "Enter Event Name")
-        
-        event_type_selection = st.selectbox(
-            "Event Category", 
-            ["Wedding", "Celebration", "Gala", "Party", "Workshop", "Conference", "Other..."]
-        )
-        
-        custom_type = st.text_input("If 'Other', specify type here:", "")
+        event_name = st.text_input("Event Name", "My Luxury Event")
+        event_type_selection = st.selectbox("Category", ["Wedding", "Gala", "Party", "Workshop", "Conference", "Other..."])
+        custom_type = st.text_input("If 'Other', specify:", "")
         final_event_type = custom_type if event_type_selection == "Other..." else event_type_selection
 
-        event_description = st.text_area(
-            "Describe the Event Vision", 
-            placeholder="e.g., A minimalist outdoor sunset wedding with sustainable materials and local Emirati cuisine.",
-            help="Providing a detailed description helps the AI agents personalize the plan and budget."
-        )
-
-        vibe_tags = st.multiselect(
-            "Select the Vibe/Atmosphere",
-            ["Modern", "Rustic", "Luxury", "Minimalist", "Traditional", "Tech-forward", "Bohemian", "Formal", "Casual"],
-            default=["Modern"]
-        )
-
-        attendees = st.number_input("Expected Attendees", min_value=1, value=100)
-        max_budget = st.number_input("Budget Limit (AED)", min_value=1, value=50000)
-        extra_notes = st.text_area("Additional Requirements", "Elegant decor, premium catering, and photography.")
+        event_description = st.text_area("Event Vision", placeholder="Describe the dream...")
+        vibe_tags = st.multiselect("Vibe", ["Modern", "Luxury", "Minimalist", "Traditional", "Bohemian", "Tech-forward"], default=["Modern"])
         
-        submit_btn = st.form_submit_button("🚀 Generate Full Plan & Mood Board")
+        attendees = st.number_input("Attendees", min_value=1, value=100)
+        max_budget = st.number_input("Budget Limit (AED)", min_value=1, value=50000)
+        extra_notes = st.text_area("Specific Requirements", "Premium catering, floral decor.")
+        
+        submit_btn = st.form_submit_button("🚀 Generate Full Plan")
 
 # =============================
-# SESSION STATE
+# SESSION STATE & LOGIC
 # =============================
 if "data" not in st.session_state:
     st.session_state.data = {"plan": None, "costs": None, "opt": None, "mood": None, "meta": {}}
 
-# =============================
-# EXECUTION LOGIC
-# =============================
 if submit_btn:
-    actual_type = final_event_type if final_event_type else event_type_selection
-    # Convert the list of vibes into a single string
-    vibe_str = ", ".join(vibe_tags) if vibe_tags else "Professional"
-    
-    with st.spinner(f"🤖 Agents are collaborating on your {actual_type}..."):
+    vibe_str = ", ".join(vibe_tags)
+    with st.spinner("🤖 Agents are collaborating..."):
         st.session_state.data["meta"] = {"name": event_name, "limit": max_budget}
         
-        # 1. Logic: General Plan (Now includes Vision and Vibe)
-        plan_prompt = (
-            f"Plan a {actual_type} named '{event_name}' for {attendees} attendees. "
-            f"Atmosphere/Vibe: {vibe_str}. "
-            f"Detailed Vision: {event_description}. "
-            f"Specific Requirements: {extra_notes}. "
-            f"Provide a Venue concept, a detailed Schedule, and a comprehensive Resource List."
-        )
+        # 1. Plan
+        plan_prompt = f"Plan a {final_event_type} named '{event_name}' for {attendees} attendees. Vibe: {vibe_str}. Vision: {event_description}. Provide Venue, Schedule, and Resource List."
         st.session_state.data["plan"] = event_planner.run(plan_prompt)
 
-        # 2. Logic: Mood Board & Theme (Context-aware)
-        mood_prompt = (
-            f"Based on the event '{event_name}' ({actual_type}) with a '{vibe_str}' vibe and this vision: {event_description}. "
-            f"Suggest a sophisticated color palette with Hex codes and a 3-sentence visual theme description."
-        )
+        # 2. Mood
+        mood_prompt = f"For event '{event_name}' ({vibe_str}), suggest a color palette with Hex codes and a 3-sentence theme description."
         st.session_state.data["mood"] = designer_agent.run(mood_prompt)
 
-        # 3. Logic: Costs
-        vendor_prompt = (
-            f"Based on this detailed plan:\n{st.session_state.data['plan']}\n"
-            f"Create a MARKDOWN COST TABLE. Estimates should be realistic for the {vibe_str} style in AED. "
-            f"Columns: | Resource | Quantity | Cost per Unit (AED) | Total Cost (AED) |"
-        )
+        # 3. Costs
+        vendor_prompt = f"Based on this plan:\n{st.session_state.data['plan']}\nCreate a MARKDOWN COST TABLE: | Resource | Quantity | Cost per Unit (AED) | Total Cost (AED) |"
         cost_out = vendor_agent.run(vendor_prompt)
         st.session_state.data["costs"] = markdown_to_df(extract_markdown_table(cost_out))
 
-        # 4. Logic: Optimization (REWRITTEN FOR STRICTER BUDGETING)
+        # 4. Optimization
         cost_str = st.session_state.data["costs"].to_string()
-        budget_prompt = (
-            f"STRICT LIMIT: {max_budget} AED. You are a ruthless financial optimizer. "
-            f"The current total is significantly OVER budget. "
-            f"Task: Modify the list below to ensure the 'Optimized Cost' total is EQUAL TO OR LESS THAN {max_budget} AED. "
-            f"Strategy: If an item is non-essential, reduce its cost by 50% or REMOVE it entirely. "
-            f"Current List:\n{cost_str}\n"
-            f"Create a MARKDOWN TABLE: | Resource | Original Cost (AED) | Optimized Cost (AED) | Savings (AED) |"
-        )
+        budget_prompt = f"STRICT LIMIT: {max_budget} AED. Optimize this list. A slight 5% overage is okay for quality. Create a MARKDOWN TABLE: | Resource | Original Cost (AED) | Optimized Cost (AED) | Savings (AED) | \n{cost_str}"
         opt_out = budget_agent.run(budget_prompt)
         st.session_state.data["opt"] = markdown_to_df(extract_markdown_table(opt_out))
+
 # =============================
-# DISPLAY RESULTS
+# DISPLAY
 # =============================
 if st.session_state.data["plan"]:
-    st.success(f"Successfully planned {st.session_state.data['meta']['name']}!")
+    tab1, tab2, tab3, tab4 = st.tabs(["📌 Plan", "🎨 Mood Board", "💰 Estimates", "📉 Interactive Budget"])
     
-    tab1, tab2, tab3, tab4 = st.tabs(["📌 Detailed Plan", "🎨 Mood Board", "💰 Estimates", "📉 Interactive Budget"])
-    
-    with tab1:
-        st.markdown(st.session_state.data["plan"])
-    
+    with tab1: st.markdown(st.session_state.data["plan"])
     with tab2:
-        st.subheader("🎨 Visual Direction")
-        
-        # Display the AI's text description
         st.info(st.session_state.data["mood"])
-        
-        # NEW: Display the actual color swatches
-        st.write("### Extracted Color Palette")
         display_color_swatches(st.session_state.data["mood"])
-    
-    with tab3:
-        st.dataframe(st.session_state.data["costs"], use_container_width=True)
-    
+    with tab3: st.dataframe(st.session_state.data["costs"], use_container_width=True)
     with tab4:
-        st.info("💡 **Edit Prices:** Modify 'Optimized Cost' below to update totals.")
-        
-        # FIX: Ensure we use a unique key and handle the edits properly
-        edited_df = st.data_editor(
-            st.session_state.data["opt"], 
-            use_container_width=True, 
-            key="budget_editor",
-            num_rows="dynamic" # Allows you to add/remove rows if needed
-        )
-        
-        # Filter out rows that are just repeated headers (Safety Check)
-        edited_df = edited_df[edited_df.iloc[:, 0] != "Resource"]
+        edited_df = st.data_editor(st.session_state.data["opt"], use_container_width=True, key="budget_editor")
+        edited_df = edited_df[~edited_df.iloc[:, 0].str.contains("Resource", case=False, na=False)]
 
         try:
-            # Using .iloc to stay safe if column names change slightly
-            orig_total = edited_df.iloc[:, 1].apply(clean_currency).sum()
-            opt_total = edited_df.iloc[:, 2].apply(clean_currency).sum()
-            actual_savings = orig_total - opt_total
-            budget_limit = st.session_state.data["meta"]["limit"]
+            orig_t = edited_df.iloc[:, 1].apply(clean_currency).sum()
+            opt_t = edited_df.iloc[:, 2].apply(clean_currency).sum()
+            st.columns(3)[0].metric("Original", f"AED {orig_t:,.0f}")
+            st.columns(3)[1].metric("Final", f"AED {opt_t:,.0f}", delta=f"{max_budget-opt_t:,.0f}")
+            st.columns(3)[2].metric("Savings", f"AED {orig_t-opt_t:,.0f}")
+        except: st.warning("Check data format.")
 
-            m1, m2, m3 = st.columns(3)
-            m1.metric("Original Total", f"AED {orig_total:,.2f}")
-            m2.metric("Final Total", f"AED {opt_total:,.2f}", 
-                      delta=f"{budget_limit - opt_total:,.2f} vs Limit", 
-                      delta_color="normal" if opt_total <= budget_limit else "inverse")
-            m3.metric("Total Savings", f"AED {actual_savings:,.2f}")
-
-            if opt_total > budget_limit:
-                st.error(f"⚠️ Over budget by AED {opt_total - budget_limit:,.2f}")
-            
-            # Update the session state so the download button has the CLEAN data
-            st.session_state.data["opt"] = edited_df
-
-        except Exception as e:
-            st.warning(f"Check your price format: {e}")
-
-    st.divider()
-    
-    # FIX: Prepare the CSV data ONLY from the current cleaned DataFrame
-    csv_data = edited_df.to_csv(index=False).encode('utf-8')
-    
-    st.download_button(
-        label="📥 Download Budget CSV",
-        data=csv_data,
-        file_name=f"{st.session_state.data['meta']['name'].replace(' ', '_')}.csv",
-        mime="text/csv",
-    )
+    st.download_button("📥 Download Budget", edited_df.to_csv(index=False).encode('utf-8'), "budget.csv")
