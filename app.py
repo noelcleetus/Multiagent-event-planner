@@ -151,9 +151,20 @@ if st.session_state.data["plan"]:
     
     with tab4:
         st.info("💡 **Edit Prices:** Modify 'Optimized Cost' below to update totals.")
-        edited_df = st.data_editor(st.session_state.data["opt"], use_container_width=True, key="budget_editor")
         
+        # FIX: Ensure we use a unique key and handle the edits properly
+        edited_df = st.data_editor(
+            st.session_state.data["opt"], 
+            use_container_width=True, 
+            key="budget_editor",
+            num_rows="dynamic" # Allows you to add/remove rows if needed
+        )
+        
+        # Filter out rows that are just repeated headers (Safety Check)
+        edited_df = edited_df[edited_df.iloc[:, 0] != "Resource"]
+
         try:
+            # Using .iloc to stay safe if column names change slightly
             orig_total = edited_df.iloc[:, 1].apply(clean_currency).sum()
             opt_total = edited_df.iloc[:, 2].apply(clean_currency).sum()
             actual_savings = orig_total - opt_total
@@ -168,10 +179,21 @@ if st.session_state.data["plan"]:
 
             if opt_total > budget_limit:
                 st.error(f"⚠️ Over budget by AED {opt_total - budget_limit:,.2f}")
-        except:
-            st.warning("Ensure price columns contain numbers.")
+            
+            # Update the session state so the download button has the CLEAN data
+            st.session_state.data["opt"] = edited_df
+
+        except Exception as e:
+            st.warning(f"Check your price format: {e}")
 
     st.divider()
-    st.download_button("📥 Download Budget CSV", edited_df.to_csv(index=False).encode('utf-8'), f"{st.session_state.data['meta']['name']}.csv", "text/csv")
-else:
-    st.write("👈 Set your specifications and click 'Generate' to begin.")
+    
+    # FIX: Prepare the CSV data ONLY from the current cleaned DataFrame
+    csv_data = edited_df.to_csv(index=False).encode('utf-8')
+    
+    st.download_button(
+        label="📥 Download Budget CSV",
+        data=csv_data,
+        file_name=f"{st.session_state.data['meta']['name'].replace(' ', '_')}.csv",
+        mime="text/csv",
+    )
