@@ -200,7 +200,13 @@ if st.session_state.data["plan"]:
     
     with tab2:
         st.subheader("🎨 Visual Direction")
+        
+        # Display the AI's text description
         st.info(st.session_state.data["mood"])
+        
+        # NEW: Display the actual color swatches
+        st.write("### Extracted Color Palette")
+        display_color_swatches(st.session_state.data["mood"])
     
     with tab3:
         st.dataframe(st.session_state.data["costs"], use_container_width=True)
