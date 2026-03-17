@@ -149,12 +149,14 @@ if submit_btn:
         cost_out = vendor_agent.run(vendor_prompt)
         st.session_state.data["costs"] = markdown_to_df(extract_markdown_table(cost_out))
 
-        # 4. Logic: Optimization
-        # We pass the cost dataframe to the budget agent to trim costs to the user's limit
+        # 4. Logic: Optimization (REWRITTEN FOR STRICTER BUDGETING)
         cost_str = st.session_state.data["costs"].to_string()
         budget_prompt = (
-            f"Budget Limit: {max_budget} AED. The event vibe is {vibe_str}. "
-            f"Optimize this list to fit the budget while maintaining quality:\n{cost_str}\n"
+            f"STRICT LIMIT: {max_budget} AED. You are a ruthless financial optimizer. "
+            f"The current total is significantly OVER budget. "
+            f"Task: Modify the list below to ensure the 'Optimized Cost' total is EQUAL TO OR LESS THAN {max_budget} AED. "
+            f"Strategy: If an item is non-essential, reduce its cost by 50% or REMOVE it entirely. "
+            f"Current List:\n{cost_str}\n"
             f"Create a MARKDOWN TABLE: | Resource | Original Cost (AED) | Optimized Cost (AED) | Savings (AED) |"
         )
         opt_out = budget_agent.run(budget_prompt)
