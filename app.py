@@ -36,6 +36,8 @@ class Agent:
         except Exception as e:
             return f"Error contacting AI: {str(e)}"
 
+import re
+
 # =============================
 # HELPERS
 # =============================
@@ -49,18 +51,42 @@ def markdown_to_df(md_table):
         lines = [line.strip() for line in md_table.split("\n") if line.strip() and "---" not in line]
         if not lines: return pd.DataFrame()
         rows = [[cell.strip() for cell in line.strip("|").split("|")] for line in lines]
-        return pd.DataFrame(rows[1:], columns=rows[0])
+        df = pd.DataFrame(rows[1:], columns=rows[0])
+        # Safety Fix: Remove rows that are actually just headers
+        if not df.empty:
+            df = df[df.iloc[:, 0].str.contains("Resource") == False]
+        return df
     except:
         return pd.DataFrame()
 
 def clean_currency(val):
     if isinstance(val, (int, float)): return float(val)
     if not val: return 0.0
+    # Removes AED, commas, and whitespace to turn "AED 1,500" into 1500.0
     cleaned = str(val).upper().replace('AED', '').replace(',', '').strip()
     try:
+        # Handle ranges by taking the lower bound (e.g., "5000 - 7000" -> 5000)
+        if '-' in cleaned:
+            cleaned = cleaned.split('-')[0].strip()
         return float(cleaned)
     except:
         return 0.0
+
+def display_color_swatches(text):
+    """Finds hex codes in text and displays them as colored boxes."""
+    # Matches #FFFFFF or #FFF
+    hex_codes = re.findall(r'#(?:[0-9a-fA-F]{3}){1,2}', text)
+    
+    if hex_codes:
+        # Deduplicate while preserving order
+        unique_hex = list(dict.fromkeys(hex_codes))
+        st.write("### 🎨 Extracted Color Palette")
+        cols = st.columns(len(unique_hex))
+        for i, code in enumerate(unique_hex):
+            with cols[i]:
+                st.color_picker(label=code, value=code, key=f"swatch_{code}_{i}", disabled=True)
+    else:
+        st.warning("No hex codes found in the designer's output.")
 
 # =============================
 # AGENT INSTANCES
