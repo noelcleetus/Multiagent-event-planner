@@ -88,9 +88,21 @@ with st.sidebar:
         custom_type = st.text_input("If 'Other', specify type here:", "")
         final_event_type = custom_type if event_type_selection == "Other..." else event_type_selection
 
+        event_description = st.text_area(
+            "Describe the Event Vision", 
+            placeholder="e.g., A minimalist outdoor sunset wedding with sustainable materials and local Emirati cuisine.",
+            help="Providing a detailed description helps the AI agents personalize the plan and budget."
+        )
+
+        vibe_tags = st.multiselect(
+            "Select the Vibe/Atmosphere",
+            ["Modern", "Rustic", "Luxury", "Minimalist", "Traditional", "Tech-forward", "Bohemian", "Formal", "Casual"],
+            default=["Modern"]
+        )
+
         attendees = st.number_input("Expected Attendees", min_value=1, value=100)
         max_budget = st.number_input("Budget Limit (AED)", min_value=1, value=50000)
-        extra_notes = st.text_area("Specific Requirements", "Elegant decor, premium catering, and photography.")
+        extra_notes = st.text_area("Additional Requirements", "Elegant decor, premium catering, and photography.")
         
         submit_btn = st.form_submit_button("🚀 Generate Full Plan & Mood Board")
 
@@ -105,32 +117,48 @@ if "data" not in st.session_state:
 # =============================
 if submit_btn:
     actual_type = final_event_type if final_event_type else event_type_selection
+    # Convert the list of vibes into a single string
+    vibe_str = ", ".join(vibe_tags) if vibe_tags else "Professional"
     
     with st.spinner(f"🤖 Agents are collaborating on your {actual_type}..."):
         st.session_state.data["meta"] = {"name": event_name, "limit": max_budget}
         
-        # 1. Logic: General Plan
+        # 1. Logic: General Plan (Now includes Vision and Vibe)
         plan_prompt = (
             f"Plan a {actual_type} named '{event_name}' for {attendees} attendees. "
-            f"Requirements: {extra_notes}. Provide Venue concept, Schedule, and Resource List."
+            f"Atmosphere/Vibe: {vibe_str}. "
+            f"Detailed Vision: {event_description}. "
+            f"Specific Requirements: {extra_notes}. "
+            f"Provide a Venue concept, a detailed Schedule, and a comprehensive Resource List."
         )
         st.session_state.data["plan"] = event_planner.run(plan_prompt)
 
-        # 2. Logic: Mood Board & Theme
-        mood_prompt = f"Based on the event '{event_name}' ({actual_type}), suggest a sophisticated color palette with Hex codes and a 3-sentence visual theme description."
+        # 2. Logic: Mood Board & Theme (Context-aware)
+        mood_prompt = (
+            f"Based on the event '{event_name}' ({actual_type}) with a '{vibe_str}' vibe and this vision: {event_description}. "
+            f"Suggest a sophisticated color palette with Hex codes and a 3-sentence visual theme description."
+        )
         st.session_state.data["mood"] = designer_agent.run(mood_prompt)
 
         # 3. Logic: Costs
-        vendor_prompt = f"Based on this plan:\n{st.session_state.data['plan']}\nCreate a MARKDOWN COST TABLE. Columns: | Resource | Quantity | Cost per Unit (AED) | Total Cost (AED) |"
+        vendor_prompt = (
+            f"Based on this detailed plan:\n{st.session_state.data['plan']}\n"
+            f"Create a MARKDOWN COST TABLE. Estimates should be realistic for the {vibe_str} style in AED. "
+            f"Columns: | Resource | Quantity | Cost per Unit (AED) | Total Cost (AED) |"
+        )
         cost_out = vendor_agent.run(vendor_prompt)
         st.session_state.data["costs"] = markdown_to_df(extract_markdown_table(cost_out))
 
         # 4. Logic: Optimization
+        # We pass the cost dataframe to the budget agent to trim costs to the user's limit
         cost_str = st.session_state.data["costs"].to_string()
-        budget_prompt = f"Limit: {max_budget} AED. Optimize this list:\n{cost_str}\nCreate a MARKDOWN TABLE: | Resource | Original Cost (AED) | Optimized Cost (AED) | Savings (AED) |"
+        budget_prompt = (
+            f"Budget Limit: {max_budget} AED. The event vibe is {vibe_str}. "
+            f"Optimize this list to fit the budget while maintaining quality:\n{cost_str}\n"
+            f"Create a MARKDOWN TABLE: | Resource | Original Cost (AED) | Optimized Cost (AED) | Savings (AED) |"
+        )
         opt_out = budget_agent.run(budget_prompt)
         st.session_state.data["opt"] = markdown_to_df(extract_markdown_table(opt_out))
-
 # =============================
 # DISPLAY RESULTS
 # =============================
