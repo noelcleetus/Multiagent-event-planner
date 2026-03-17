@@ -103,7 +103,18 @@ with st.sidebar:
         final_event_type = custom_type if event_type_selection == "Other..." else event_type_selection
 
         event_description = st.text_area("Event Vision", placeholder="Describe the dream...")
-        vibe_tags = st.multiselect("Vibe", ["Modern", "Luxury", "Minimalist", "Traditional", "Bohemian", "Tech-forward"], default=["Modern"])
+        vibe_tags = st.multiselect(
+            "Select the Vibe/Atmosphere",
+            [
+                # Aesthetic Styles
+                "Modern", "Rustic", "Luxury", "Minimalist", "Bohemian", "Vintage", "Industrial", 
+                # Professional/Tone
+                "Formal", "Casual", "Tech-forward", "Traditional", "Corporate", "Academic",
+                # Atmosphere
+                "Energetic", "Intimate", "Whimsical", "Cinematic", "Futuristic", "Cyberpunk", "Art Deco"
+            ],
+            default=["Modern"]
+        )
         
         attendees = st.number_input("Attendees", min_value=1, value=100)
         max_budget = st.number_input("Budget Limit (AED)", min_value=1, value=50000)
